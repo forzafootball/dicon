@@ -14,11 +14,14 @@ defmodule Dicon.Executor do
 
   defstruct [:executor, :conn]
 
+  @type host_config_opt() :: {:authority, binary()} | {:jump_authority, binary()}
+
   @doc """
   Connects to the given authority, returning a term that identifies the
   connection.
   """
-  @callback connect(authority :: binary) :: {:ok, conn} | {:error, binary}
+  @callback connect(authority :: binary, host_config_opts :: [host_config_opt()]) ::
+              {:ok, conn} | {:error, binary}
 
   @doc """
   Executes the given `command` on the given connection, writing the output of
@@ -47,11 +50,11 @@ defmodule Dicon.Executor do
       %Dicon.Executor{} = Dicon.Executor.connect("meg:secret@example.com")
 
   """
-  @spec connect(binary) :: {:ok, t} | {:error, term}
-  def connect(authority) do
+  @spec connect(binary, [host_config_opt()]) :: t()
+  def connect(authority, host_config_opts \\ []) do
     executor = Application.get_env(:dicon, :executor, SecureShell)
 
-    case executor.connect(authority) do
+    case executor.connect(authority, host_config_opts) do
       {:ok, conn} ->
         Mix.shell().info("Connected to #{authority}")
         %__MODULE__{executor: executor, conn: conn}
