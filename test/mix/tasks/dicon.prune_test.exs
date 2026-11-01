@@ -38,28 +38,37 @@ defmodule Mix.Tasks.Dicon.PruneTest do
 
     for host <- ["one", "two"] do
       assert_receive {:dicon, _, :connect, [^host, []]}
-      assert_info("#{host}: keeping current 1.7.6, previous 1.7.6-rc4")
+      assert_info("#{host}: keeping current 1.7.6, previous 1.7.5")
       assert_info_suffix("#{host}: would delete ", "/1.8.0-rc3-fcm-http2")
-      assert_info_suffix("#{host}: would delete ", "/1.7.5")
+      assert_info_suffix("#{host}: would delete ", "/1.7.6-rc4")
     end
 
     assert Enum.sort(File.ls!(target)) == Enum.sort(["current" | versions])
     refute_delete_command()
   end
 
-  test "deletes older and newer versions, keeping the highest previous RC", %{target: target} do
-    releases(target, ~w(1.7.5 1.7.6-rc4 1.7.6 1.8.0-rc3-fcm-http2), "1.7.6")
+  test "standalone pruning prefers the highest stable below current over an RC", %{target: target} do
+    releases(target, ~w(1.7.4 1.7.5 1.7.6-rc4 1.7.6 1.8.0-rc3-fcm-http2), "1.7.6")
 
     run([])
 
-    assert Enum.sort(File.ls!(target)) == ~w(1.7.6 1.7.6-rc4 current)
+    assert Enum.sort(File.ls!(target)) == ~w(1.7.5 1.7.6 current)
     assert File.read_link!(Path.join(target, "current")) == "1.7.6"
     assert_info_suffix("one: deleted ", "/1.8.0-rc3-fcm-http2")
-    assert_info_suffix("one: deleted ", "/1.7.5")
+    assert_info_suffix("one: deleted ", "/1.7.6-rc4")
+    assert_info_suffix("one: deleted ", "/1.7.4")
   end
 
-  test "current can be an RC and alphanumeric identifiers sort lexically", %{target: target} do
-    releases(target, ~w(1.1.8 1.1.9-rc2 1.1.9-rc9 1.1.9-rc10 1.1.9 1.1.10), "1.1.9-rc9")
+  test "RC current also prefers a lower stable release", %{target: target} do
+    releases(target, ~w(1.1.7 1.1.8 1.1.9-rc0 1.1.9-rc1 1.1.9), "1.1.9-rc1")
+
+    run([])
+
+    assert Enum.sort(File.ls!(target)) == ~w(1.1.8 1.1.9-rc1 current)
+  end
+
+  test "falls back to the highest RC below current when no lower stable exists", %{target: target} do
+    releases(target, ~w(1.1.8-rc1 1.1.9-rc2 1.1.9-rc9 1.1.9-rc10 1.1.9 1.1.10), "1.1.9-rc9")
 
     run([])
 
@@ -68,7 +77,7 @@ defmodule Mix.Tasks.Dicon.PruneTest do
   end
 
   test "numeric pre-release identifiers and release components use SemVer", %{target: target} do
-    releases(target, ~w(1.9.0 1.10.0-rc.2 1.10.0-rc.10 1.10.0 2.0.0), "1.10.0")
+    releases(target, ~w(1.9.0-rc.1 1.10.0-rc.2 1.10.0-rc.10 1.10.0 2.0.0), "1.10.0")
 
     run([])
 
@@ -143,7 +152,7 @@ defmodule Mix.Tasks.Dicon.PruneTest do
   test "rejects a missing current", %{target: target} do
     File.mkdir_p!(Path.join(target, "1.0.0"))
 
-    assert_raise Mix.Error, ~r/Pruning command failed/, fn -> run([]) end
+    assert_raise Mix.Error, ~r/current is missing/, fn -> run([]) end
 
     assert File.dir?(Path.join(target, "1.0.0"))
     refute_delete_command()
@@ -289,7 +298,30 @@ defmodule Mix.Tasks.Dicon.PruneTest do
     assert_raise Mix.Error, "Invalid option: --invalid", fn -> run(["--invalid"]) end
   end
 
-  test "opted-in switch prunes after selecting the staged release and allows rollback", %{
+  test "opted-in switch preserves the previous current when an unused RC is on disk", %{
+    target: target
+  } do
+    releases(target, ~w(1.7.4 1.7.5 1.7.6-rc4 1.7.6), "1.7.5")
+    put_dicon_env(%{prune_on_switch: true})
+
+    Mix.Tasks.Dicon.Switch.run(["1.7.6"])
+
+    assert Enum.sort(File.ls!(target)) == ~w(1.7.5 1.7.6 current)
+    assert File.read!(Path.join([target, "1.7.5", "release.txt"])) == "1.7.5"
+    assert_info("one: keeping current 1.7.6, previous 1.7.5")
+  end
+
+  test "opted-in switch retains an RC if it was the previous current", %{target: target} do
+    releases(target, ~w(1.7.5 1.7.6-rc4 1.7.6), "1.7.6-rc4")
+    put_dicon_env(%{prune_on_switch: true})
+
+    Mix.Tasks.Dicon.Switch.run(["1.7.6"])
+
+    assert Enum.sort(File.ls!(target)) == ~w(1.7.6 1.7.6-rc4 current)
+    assert_info("one: keeping current 1.7.6, previous 1.7.6-rc4")
+  end
+
+  test "opted-in rollback preserves the rolled-back-from release for rolling forward", %{
     target: target
   } do
     releases(target, ~w(1.0.0 1.1.0 1.2.0), "1.1.0")
@@ -302,8 +334,71 @@ defmodule Mix.Tasks.Dicon.PruneTest do
 
     Mix.Tasks.Dicon.Switch.run(["1.1.0"])
 
-    assert Enum.sort(File.ls!(target)) == ~w(1.1.0 current)
+    assert Enum.sort(File.ls!(target)) == ~w(1.1.0 1.2.0 current)
     assert Path.basename(File.read_link!(Path.join(target, "current"))) == "1.1.0"
+    assert_info("one: keeping current 1.1.0, previous 1.2.0")
+
+    Mix.Tasks.Dicon.Switch.run(["1.2.0"])
+
+    assert Enum.sort(File.ls!(target)) == ~w(1.1.0 1.2.0 current)
+    assert Path.basename(File.read_link!(Path.join(target, "current"))) == "1.2.0"
+  end
+
+  test "switching to current again preserves the rollback target", %{target: target} do
+    releases(target, ~w(1.7.6-rc4 1.7.6), "1.7.6")
+    put_dicon_env(%{prune_on_switch: true})
+
+    Mix.Tasks.Dicon.Switch.run(["1.7.6"])
+
+    assert Enum.sort(File.ls!(target)) == ~w(1.7.6 1.7.6-rc4 current)
+    refute_delete_command()
+  end
+
+  test "first switch with no current keeps only the requested release", %{target: target} do
+    releases(target, ~w(1.7.5 1.7.6), "1.7.5")
+    File.rm!(Path.join(target, "current"))
+    put_dicon_env(%{prune_on_switch: true})
+
+    Mix.Tasks.Dicon.Switch.run(["1.7.6"])
+
+    assert Enum.sort(File.ls!(target)) == ~w(1.7.6 current)
+    assert_info("one: keeping current 1.7.6, previous none")
+  end
+
+  test "invalid previous current aborts before switching", %{target: target} do
+    releases(target, ~w(log 1.7.5 1.7.6), "log")
+    put_dicon_env(%{prune_on_switch: true})
+
+    assert_raise Mix.Error, ~r/current must resolve to a version directory/, fn ->
+      Mix.Tasks.Dicon.Switch.run(["1.7.6"])
+    end
+
+    assert File.read_link!(Path.join(target, "current")) == "log"
+    assert Enum.sort(File.ls!(target)) == ~w(1.7.5 1.7.6 current log)
+    refute_delete_command()
+  end
+
+  test "pruning aborts if the captured previous release disappears during switch", %{
+    root: root,
+    target: target
+  } do
+    releases(target, ~w(1.7.4 1.7.5 1.7.6), "1.7.5")
+    put_dicon_env(%{prune_on_switch: true})
+
+    on_exec(:all, fn command, device ->
+      if String.starts_with?(command, "ln -snf") do
+        File.rm_rf!(Path.join(target, "1.7.5"))
+      end
+
+      exec_locally(command, device, root)
+    end)
+
+    assert_raise Mix.Error, ~r/previous release 1.7.5 is missing/, fn ->
+      Mix.Tasks.Dicon.Switch.run(["1.7.6"])
+    end
+
+    assert Enum.sort(File.ls!(target)) == ~w(1.7.4 1.7.6 current)
+    refute_delete_command()
   end
 
   test "does not prune if switch fails to select the requested version", %{target: target} do

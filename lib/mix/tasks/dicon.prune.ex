@@ -4,9 +4,11 @@ defmodule Mix.Tasks.Dicon.Prune do
   @shortdoc "Keeps current and the previous release on the configured servers"
 
   @moduledoc """
-  Deletes version directories except current and the highest SemVer below it.
-  The previous version may be a pre-release. Newer versions are also deleted.
-  Non-version entries and symlinks are left alone.
+  Deletes version directories except current and the highest stable SemVer below
+  it. If no lower stable version exists, keeps the highest pre-release below
+  current instead. All other versions, including newer versions, are deleted.
+  Non-version entries and symlinks are left alone. Unlike automatic pruning on
+  switch, this task has no record of the release previously selected by current.
 
   The configured hosts and target directory come from the application's `:dicon`
   configuration. Use `--only HOST` / `--skip HOST` to filter hosts and `--dry-run`

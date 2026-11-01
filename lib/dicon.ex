@@ -31,8 +31,9 @@ defmodule Dicon do
 
     * `:prune_on_switch` - a boolean, defaulting to `false`. When enabled,
       `dicon.switch` prunes each host after switching, keeping current and the
-      highest SemVer below it (which may be a pre-release). All other version
-      directories, including newer versions, are removed. See `dicon.prune` and
+      release current pointed to before the switch, even if it is an RC or newer
+      than current after rollback. All other version directories are removed.
+      Switching to the already-current version skips pruning. See `dicon.prune` and
       the README for ordering and rollback requirements.
 
   ### Configuration for hosts

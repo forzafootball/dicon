@@ -7,20 +7,17 @@ defmodule Dicon.Pruner do
   # after every shell operation succeeds, including a complete directory listing.
   @success "dicon:prune:ok"
 
+  def current_version(%Executor{} = conn, target_dir, host) when is_binary(target_dir) do
+    {_root, current, _releases} = inventory(conn, target_dir, host)
+    current
+  end
+
   def prune(%Executor{} = conn, target_dir, host, opts \\ []) when is_binary(target_dir) do
-    target_dir = if Path.type(target_dir) == :absolute, do: target_dir, else: "./" <> target_dir
+    {root, current, releases} = inventory(conn, target_dir, host)
 
-    output =
-      checked_exec(conn, [
-        "cd ",
-        quote_path(target_dir),
-        " && root=$(pwd -P) && test -L current",
-        " && current=$(cd current && pwd -P)",
-        " && printf '%s\\0' \"$root\" \"$current\"",
-        " && find . -mindepth 1 -maxdepth 1 -type d -print0"
-      ])
-
-    {root, current, releases} = parse_inventory(output, host)
+    if is_nil(current) do
+      Mix.raise("#{host}: current is missing; refusing to prune")
+    end
 
     if expected = opts[:expected_current] do
       if current != expected do
@@ -28,12 +25,7 @@ defmodule Dicon.Pruner do
       end
     end
 
-    previous =
-      Enum.find(releases, fn {_, %Version{} = version} ->
-        Version.compare(version, current) == :lt
-      end)
-
-    previous_name = if previous, do: elem(previous, 0)
+    previous_name = previous_version(releases, current, host, opts)
     Mix.shell().info("#{host}: keeping current #{current}, previous #{previous_name || "none"}")
 
     for {name, _} <- releases, name not in [current, previous_name] do
@@ -62,9 +54,51 @@ defmodule Dicon.Pruner do
     :ok
   end
 
+  defp previous_version(releases, current, host, opts) do
+    case Keyword.fetch(opts, :keep_previous) do
+      {:ok, nil} ->
+        nil
+
+      {:ok, previous} when is_binary(previous) ->
+        if not List.keymember?(releases, previous, 0) do
+          Mix.raise("#{host}: previous release #{previous} is missing; refusing to prune")
+        end
+
+        previous
+
+      :error ->
+        older =
+          Enum.filter(releases, fn {_, %Version{} = version} ->
+            Version.compare(version, current) == :lt
+          end)
+
+        previous =
+          Enum.find(older, fn {_, %Version{pre: pre}} -> pre == [] end) || List.first(older)
+
+        if previous, do: elem(previous, 0)
+    end
+  end
+
+  defp inventory(%Executor{} = conn, target_dir, host) when is_binary(target_dir) do
+    target_dir = if Path.type(target_dir) == :absolute, do: target_dir, else: "./" <> target_dir
+
+    output =
+      checked_exec(conn, [
+        "cd ",
+        quote_path(target_dir),
+        " && root=$(pwd -P)",
+        " && if test ! -e current && test ! -L current; then current='';",
+        " else test -L current && current=$(cd current && pwd -P); fi",
+        " && printf '%s\\0' \"$root\" \"$current\"",
+        " && find . -mindepth 1 -maxdepth 1 -type d -print0"
+      ])
+
+    parse_inventory(output, host)
+  end
+
   defp parse_inventory(output, host) when is_binary(output) do
     case String.split(output, "\0", trim: false) do
-      ["/" <> _ = root, "/" <> _ = current_path | entries] ->
+      ["/" <> _ = root, current_path | entries] ->
         releases =
           entries
           |> Enum.flat_map(fn
@@ -85,11 +119,16 @@ defmodule Dicon.Pruner do
             end
           end)
 
-        current = Path.basename(current_path)
+        current =
+          if current_path != "" do
+            name = Path.basename(current_path)
 
-        if Path.dirname(current_path) != root or not List.keymember?(releases, current, 0) do
-          Mix.raise("#{host}: current must resolve to a version directory inside #{root}")
-        end
+            if Path.dirname(current_path) != root or not List.keymember?(releases, name, 0) do
+              Mix.raise("#{host}: current must resolve to a version directory inside #{root}")
+            end
+
+            name
+          end
 
         {root, current, releases}
 
