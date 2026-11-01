@@ -100,10 +100,10 @@ defmodule Dicon.Pruner do
 
   defp checked_exec(%Executor{} = conn, command) do
     {:ok, device} = StringIO.open("")
-    success = @success <> "\0"
+    success = "\0" <> @success <> "\0"
 
     try do
-      Executor.exec(conn, [command, " && printf '%s\\0' ", quote_path(@success)], device)
+      Executor.exec(conn, [command, " && printf '\\0%s\\0' ", quote_path(@success)], device)
       {"", output} = StringIO.contents(device)
 
       if String.ends_with?(output, success) do

@@ -249,6 +249,23 @@ defmodule Mix.Tasks.Dicon.PruneTest do
     assert File.dir?(Path.join(target, "1.0.0"))
   end
 
+  test "a directory name cannot masquerade as the success marker in a failed listing", %{
+    target: target
+  } do
+    releases(target, ~w(1.0.0 1.1.0 1.2.0), "1.2.0")
+
+    on_exec(:all, fn _command, device ->
+      IO.write(
+        device,
+        "#{target}\0#{target}/1.2.0\0./1.0.0\0./1.1.0\0./1.2.0\0./dicon:prune:ok\0"
+      )
+    end)
+
+    assert_raise Mix.Error, ~r/Pruning command failed/, fn -> run([]) end
+
+    refute_delete_command()
+  end
+
   test "filters hosts and passes their connection options", %{target: target} do
     releases(target, ~w(1.0.0), "1.0.0")
     put_dicon_env(%{hosts: [:one, :two], one: [authority: "one", jump_authority: "jump"]})
