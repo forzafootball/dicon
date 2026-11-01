@@ -29,6 +29,12 @@ defmodule Dicon do
     * `:executor` - a module that will be used to execute commands on servers.
       By default, it's `Dicon.SecureShell`.
 
+    * `:prune_on_switch` - a boolean, defaulting to `false`. When enabled,
+      `dicon.switch` prunes each host after switching, keeping current and the
+      highest SemVer below it (which may be a pre-release). All other version
+      directories, including newer versions, are removed. See `dicon.prune` and
+      the README for ordering and rollback requirements.
+
   ### Configuration for hosts
 
   Each host listed in the `:hosts` configuration option mentioned above can be

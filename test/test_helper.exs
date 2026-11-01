@@ -108,6 +108,10 @@ defmodule DiconTest.Case do
     if callback do
       callback.(device)
       Application.put_env(:dicon, __MODULE__, env)
+    else
+      if handler = get_in(env, [:exec_callbacks, :all]) do
+        handler.(command, device)
+      end
     end
 
     :ok
