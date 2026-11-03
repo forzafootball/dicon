@@ -14,6 +14,11 @@ defmodule Mix.Tasks.Dicon.Switch do
   the currently active release to the one specified by the given version. Switching
   versions won't affect the running application.
 
+  With `config :dicon, prune_on_switch: true`, each host is pruned after switching,
+  keeping current and the release current pointed to before the switch. Switching
+  to the already-current version skips pruning to preserve the rollback target. See
+  `mix help dicon.prune` and the README for the retention and rollback policy.
+
   ## Usage
 
       mix dicon.switch VERSION
@@ -42,7 +47,18 @@ defmodule Mix.Tasks.Dicon.Switch do
         for host <- config(:hosts, opts) do
           {authority, host_config} = Keyword.pop!(host_config(host), :authority)
           conn = Executor.connect(authority, host_config)
+          prune? = Application.get_env(:dicon, :prune_on_switch, false)
+
+          previous = if prune?, do: Dicon.Pruner.current_version(conn, config(:target_dir), host)
+
           symlink(conn, [target_dir, ?/, version], [target_dir, "/current"])
+
+          if prune? and previous != version do
+            Dicon.Pruner.prune(conn, config(:target_dir), host,
+              expected_current: version,
+              keep_previous: previous
+            )
+          end
         end
 
       {_opts, _commands, [switch | _]} ->
