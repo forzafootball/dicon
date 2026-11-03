@@ -30,7 +30,7 @@ defmodule Mix.Tasks.Dicon.DeployTest do
 
     run([source, "0.1.0"])
 
-    assert_receive {:dicon, ref, :connect, ["one", []]}
+    assert_receive {:dicon, ref, :connect, ["one", [apps_env: [foo: [bar: "baz"]]]]}
     assert_receive {:dicon, ^ref, :exec, ["mkdir -p test"]}
     assert_receive {:dicon, ^ref, :copy, [^source, ^release_file]}
     assert_receive {:dicon, ^ref, :exec, ["mkdir -p test/0.1.0"]}
@@ -63,7 +63,7 @@ defmodule Mix.Tasks.Dicon.DeployTest do
     end)
 
     run([source, "0.1.0", "--only", "one"])
-    assert_receive {:dicon, ref, :connect, ["one", []]}
+    assert_receive {:dicon, ref, :connect, ["one", [apps_env: [foo: [bar: "baz"]]]]}
     :ok = flush_reply(ref)
     refute_receive {:dicon, _, _, _}
 
@@ -80,7 +80,7 @@ defmodule Mix.Tasks.Dicon.DeployTest do
     end)
 
     run([source, "0.1.0", "--only", "one", "--only", "two"])
-    assert_receive {:dicon, ref, :connect, ["one", []]}
+    assert_receive {:dicon, ref, :connect, ["one", [apps_env: [foo: [bar: "baz"]]]]}
     :ok = flush_reply(ref)
     assert_receive {:dicon, ref, :connect, ["two", []]}
     :ok = flush_reply(ref)
