@@ -49,8 +49,7 @@ defmodule Mix.Tasks.Dicon.Switch do
           conn = Executor.connect(authority, host_config)
           prune? = Application.get_env(:dicon, :prune_on_switch, false)
 
-          previous =
-            if prune?, do: Dicon.Pruner.current_version(conn, config(:target_dir), host)
+          previous = if prune?, do: Dicon.Pruner.current_version(conn, config(:target_dir), host)
 
           symlink(conn, [target_dir, ?/, version], [target_dir, "/current"])
 
